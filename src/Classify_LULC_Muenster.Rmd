@@ -1,0 +1,147 @@
+---
+title: "Münster LUC classification with stars"
+author: "Hanna Meyer"
+date: "1/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Start
+
+
+
+```{r,message=FALSE}
+library(sf)
+library(stars)
+library(caret)
+library(CAST)
+library(sen2r)
+library(tmap)
+
+```
+
+## Get required data
+
+### Load training polygons
+```{r}
+trainsites <- st_read("../data/trainingsites_muenster.gpkg")
+```
+
+### Download Sentinel-2 data
+```{r, message=FALSE,warning=FALSE}
+## Login first:
+#write_scihub_login("xxxx", "xxxx")
+
+list_safe <- s2_list(
+  spatial_extent = trainsites,
+  tile = "32ULC",
+  level = "L1C",
+  time_interval = as.Date(c("2020-04-26", "2020-04-28"))) # ursprüngliche szene: c("2019-04-17", "2019-04-19")
+#ordered_prods <- s2_order(list_safe)
+
+##order_path <- attr(ordered_prods, "path")
+##safe_is_online(order_path)
+s2_download(list_safe[1], outdir="../data/")
+sen_id <- names(list_safe[1])
+                
+```
+
+## read Sentinel data
+
+```{r}
+bands <- c("B04", "B03", "B02", "B08")#, "B05", "B06", "B07", "B8A", "B11", "B12")
+
+s2 <- list.files(paste0("../data/",sen_id),
+                 recursive=TRUE,
+                 full.names = TRUE,
+                 pattern=".jp2")
+s2 <- s2[substr(s2,nchar(s2)-6,nchar(s2))%in%paste0(bands,".jp2")]
+
+sen <- read_stars(s2, proxy = TRUE, NA_value = 0) %>%
+  setNames(bands) 
+```
+
+
+## Create Training data
+
+```{r, warning=FALSE}
+pts <- st_as_sf(st_sample(trainsites, 200, "regular"))
+pts <- st_intersection(pts,st_make_valid(trainsites))
+
+trainDat <- data.frame(st_extract(sen, pts))
+trainDat$Label <- as.factor(pts$Label)
+```
+
+## Train model and predict
+
+
+```{r}
+model <- train(trainDat[,attributes(sen)$names],
+              trainDat$Label,
+              method="rf",ntree=200)
+
+
+prediction <- predict(sen, model)
+```
+
+## AOA
+
+```{r}
+sen_b <-  merge(sen)%>% 
+    split() %>%
+    st_as_stars(downsample=c(30,30))
+attributes(sen_b)$names <- attributes(sen)$names
+
+AOA <- aoa(sen_b, model)
+```
+
+## Visualize results
+```{r, warning=FALSE, message=FALSE}
+
+
+
+cols <- rev(c("red","lightgreen","forestgreen","blue","darkred","green","beige"))
+tm_shape(prediction,
+                raster.downsample = FALSE) +
+  tm_raster(palette = cols,title = "LUC")+
+  tm_scale_bar(bg.color="white")+
+  tm_layout(legend.position = c("left","bottom"),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.6)
+
+#tmap_save(map, "LUC_map.png")
+
+### And thw same with focus on Münster:
+### RGB of small area
+sen_crop <- st_crop(sen,st_bbox(trainsites))
+sen_crop_p <- merge(st_as_stars(sen_crop))
+plot(sen_crop_p,rgb=c(3,2,1))
+
+prediction_crop <- st_crop(prediction,st_bbox(trainsites))
+tm_shape(prediction_crop,
+                raster.downsample = FALSE) +
+  tm_raster(palette = cols,title = "LUC")+
+  tm_scale_bar(bg.color="white")+
+  tm_layout(legend.position = c("left","bottom"),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.6)
+
+#tmap_save(map, "LUC_muenster_map.png")
+
+
+```
+
+
+
+## Write results
+```{r}
+#write_stars(AOA,"DI.tif",layer=1)
+#write_stars(AOA,"AOA.tif",layer=2)
+
+#write_stars(prediction,"prediction.tif",
+#            chunk_size=c(dim(prediction)[1], 
+#                         floor(2.5e+06/dim(prediction)[1])))
+```
