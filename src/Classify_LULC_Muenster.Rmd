@@ -1,6 +1,6 @@
 ---
 title: "Münster LUC classification with stars"
-author: "Hanna Meyer"
+author: "Hanna Meyer, Edzer Pebesma"
 date: "1/4/2021"
 output: html_document
 ---
@@ -20,7 +20,11 @@ library(caret)
 library(CAST)
 library(sen2r)
 library(tmap)
+```
 
+We will first fix the random number seed, to get identical results for procedures that involve randomness. Remove this command if you want the random effect in outcomes.
+```{r}
+set.seed(131)
 ```
 
 ## Get required data
@@ -31,20 +35,21 @@ trainsites <- st_read("../data/trainingsites_muenster.gpkg")
 ```
 
 ### Download Sentinel-2 data
+
+```{r, echo=FALSE, eval=FALSE}
+write_scihub_login("*******", "******")
+```
+
 ```{r, message=FALSE,warning=FALSE}
-## Login first:
-#write_scihub_login("xxxx", "xxxx")
+
 
 list_safe <- s2_list(
-  spatial_extent = trainsites,
+  spatial_extent = st_as_sfc(st_bbox(trainsites)),
   tile = "32ULC",
   level = "L1C",
   time_interval = as.Date(c("2020-04-26", "2020-04-28"))) # ursprüngliche szene: c("2019-04-17", "2019-04-19")
-#ordered_prods <- s2_order(list_safe)
 
-##order_path <- attr(ordered_prods, "path")
-##safe_is_online(order_path)
-s2_download(list_safe[1], outdir="../data/")
+#s2_download(list_safe[1], outdir="../data/")
 sen_id <- names(list_safe[1])
                 
 ```
@@ -58,20 +63,27 @@ s2 <- list.files(paste0("../data/",sen_id),
                  recursive=TRUE,
                  full.names = TRUE,
                  pattern=".jp2")
-s2 <- s2[substr(s2,nchar(s2)-6,nchar(s2))%in%paste0(bands,".jp2")]
+# match band name to file name:
+m = match(paste0(bands,".jp2"), substr(s2,nchar(s2)-6,nchar(s2)))
+s2 <- s2[m]
 
 sen <- read_stars(s2, proxy = TRUE, NA_value = 0) %>%
-  setNames(bands) 
+  setNames(bands)
 ```
 
 
 ## Create Training data
 
 ```{r, warning=FALSE}
-pts <- st_as_sf(st_sample(trainsites, 200, "regular"))
+pts <- st_as_sf(st_sample(trainsites, 200, "random"))
 pts <- st_intersection(pts,st_make_valid(trainsites))
 
-trainDat <- data.frame(st_extract(sen, pts))
+trainDat <- st_extract(sen, pts) %>%
+  st_intersection(pts)%>%
+  data.frame()
+
+
+trainDat <- data.frame(trainDat,pts)
 trainDat$Label <- as.factor(pts$Label)
 ```
 
@@ -79,12 +91,28 @@ trainDat$Label <- as.factor(pts$Label)
 
 
 ```{r}
+
+ind <- CreateSpacetimeFolds(trainDat,spacevar="PolygonID",class="Label",k=3)
+ctrl <- trainControl(method="cv",index=ind$index,indexOut = ind$indexOut,savePredictions = TRUE)
+
 model <- train(trainDat[,attributes(sen)$names],
               trainDat$Label,
+              tuneLength = length(attributes(sen)$names)-1,
+              trControl = ctrl,
               method="rf",ntree=200)
 
 
 prediction <- predict(sen, model)
+```
+
+
+### Spatial (cross-)validation
+
+
+```{r}
+confusionMatrix(model$pred$pred[model$pred$mtry==model$bestTune$mtry],
+      model$pred$obs[model$pred$mtry==model$bestTune$mtry])
+
 ```
 
 ## AOA
@@ -92,25 +120,30 @@ prediction <- predict(sen, model)
 ```{r}
 sen_b <-  merge(sen)%>% 
     split() %>%
-    st_as_stars(downsample=c(30,30))
+    st_as_stars(downsample=c(2,2))
 attributes(sen_b)$names <- attributes(sen)$names
 
 AOA <- aoa(sen_b, model)
+
 ```
 
 ## Visualize results
 ```{r, warning=FALSE, message=FALSE}
 
-
+p_rgb <- tm_shape(st_as_stars(sen,downsample = c(20,20))) +
+  tm_rgb(  max.value=24778)
 
 cols <- rev(c("red","lightgreen","forestgreen","blue","darkred","green","beige"))
-tm_shape(prediction,
+p1 <- tm_shape(st_as_stars(prediction, downsample = c(10,10)),
                 raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
   tm_scale_bar(bg.color="white")+
   tm_layout(legend.position = c("left","bottom"),
             legend.bg.color = "white",
             legend.bg.alpha = 0.6)
+
+
+tmap_arrange(p_rgb, p1, p1,nrow=1,asp=1)
 
 #tmap_save(map, "LUC_map.png")
 
@@ -118,16 +151,23 @@ tm_shape(prediction,
 ### RGB of small area
 sen_crop <- st_crop(sen,st_bbox(trainsites))
 sen_crop_p <- merge(st_as_stars(sen_crop))
-plot(sen_crop_p,rgb=c(3,2,1))
+# plot(sen_crop_p,rgb=c(3,2,1))
+
+p_rgb <- tm_shape(st_as_stars(sen_crop)) +
+  tm_rgb(  max.value=24778)
+
 
 prediction_crop <- st_crop(prediction,st_bbox(trainsites))
-tm_shape(prediction_crop,
-                raster.downsample = FALSE) +
+p1 <- tm_shape(st_as_stars(prediction_crop)) +
   tm_raster(palette = cols,title = "LUC")+
   tm_scale_bar(bg.color="white")+
   tm_layout(legend.position = c("left","bottom"),
             legend.bg.color = "white",
             legend.bg.alpha = 0.6)
+
+
+tmap_arrange(p_rgb, p1, p1,nrow=1,asp=1)
+
 
 #tmap_save(map, "LUC_muenster_map.png")
 
@@ -137,11 +177,13 @@ tm_shape(prediction_crop,
 
 
 ## Write results
+Run this code only if you want to write the results. It takes a while!
 ```{r}
-#write_stars(AOA,"DI.tif",layer=1)
-#write_stars(AOA,"AOA.tif",layer=2)
 
-#write_stars(prediction,"prediction.tif",
+#write_stars(AOA,"../data/DI.tif",layer=1)
+#write_stars(AOA,"../data/AOA.tif",layer=2)
+
+#write_stars(prediction,"../data/prediction.tif",
 #            chunk_size=c(dim(prediction)[1], 
 #                         floor(2.5e+06/dim(prediction)[1])))
 ```
