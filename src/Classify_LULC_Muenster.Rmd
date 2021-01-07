@@ -20,6 +20,7 @@ library(caret)
 library(CAST)
 library(sen2r)
 library(tmap)
+library(knitr)
 ```
 
 We will first fix the random number seed, to get identical results for procedures that involve randomness. Remove this command if you want the random effect in outcomes.
@@ -115,63 +116,130 @@ confusionMatrix(model$pred$pred[model$pred$mtry==model$bestTune$mtry],
 
 ```
 
-## AOA
+## Estimate the AOA
 
 ```{r}
-sen_b <-  merge(sen)%>% 
-    split() %>%
-    st_as_stars(downsample=c(2,2))
-attributes(sen_b)$names <- attributes(sen)$names
+AOA <-  merge(sen)%>% 
+  split() %>%
+  st_as_stars(downsample=c(10,10))%>%
+  setNames(bands)%>%
+  aoa(model)
 
-AOA <- aoa(sen_b, model)
 
 ```
 
-## Visualize results
+## Visualize RGB, Prediction, and Prediction within the AOA
 ```{r, warning=FALSE, message=FALSE}
 
-p_rgb <- tm_shape(st_as_stars(sen,downsample = c(20,20))) +
-  tm_rgb(  max.value=24778)
+png("../figures/rgb_all.png", width=15, height=15,units = "cm",res=300)
+plot(st_rgb(merge(st_as_stars(sen,downsample=c(10,10)))[,,,c(1,2,3)], stretch = TRUE, probs = c(.01, .99)),main=NULL)
+invisible(dev.off())
 
-cols <- rev(c("red","lightgreen","forestgreen","blue","darkred","green","beige"))
-p1 <- tm_shape(st_as_stars(prediction, downsample = c(10,10)),
-                raster.downsample = FALSE) +
+cols <- rev(c("red","lightgreen","forestgreen","blue","green","beige"))
+
+
+
+
+prediction_st = st_as_stars(prediction, downsample = c(10,10))
+
+
+map1 <- tm_shape(prediction_st, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
   tm_scale_bar(bg.color="white")+
-  tm_layout(legend.position = c("left","bottom"),
+  tm_layout(legend.position = c("left","top"),
             legend.bg.color = "white",
-            legend.bg.alpha = 0.6)
+            legend.bg.alpha = 0.6,
+            legend.text.size = 1.5,
+            legend.title.size = 1.5)
 
 
-tmap_arrange(p_rgb, p1, p1,nrow=1,asp=1)
+prediction_st[AOA[2] == 0] = NA
 
-#tmap_save(map, "LUC_map.png")
+map1_AOA <- tm_shape(prediction_st, raster.downsample = FALSE) +
+  tm_raster(palette = cols,title = "LUC")+
+  tm_scale_bar(bg.color="white")+
+  tm_layout(legend.position = c("left","top"),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.6,
+            bg.color="black",
+            legend.text.size = 1.5,
+            legend.title.size = 1.5)+
+  tm_add_legend(type = "fill",
+                col="black",
+                labels = "Outside AOA")
 
-### And thw same with focus on Münster:
-### RGB of small area
-sen_crop <- st_crop(sen,st_bbox(trainsites))
-sen_crop_p <- merge(st_as_stars(sen_crop))
-# plot(sen_crop_p,rgb=c(3,2,1))
 
-p_rgb <- tm_shape(st_as_stars(sen_crop)) +
-  tm_rgb(  max.value=24778)
 
+tmap_save(map1, "../figures/LUC_map.png")
+tmap_save(map1_AOA, "../figures/LUC_map_AOA.png")
+```
+
+```{r, echo=FALSE,out.width="100%",fig.cap=""}
+include_graphics("../figures/rgb_all.png")
+include_graphics("../figures/LUC_map.png")
+include_graphics("../figures/LUC_map_AOA.png")
+```
+
+
+
+
+### And the same with focus on the training area Münster:
+
+
+```{r, warning=FALSE, message=FALSE}
+sen_crop <- st_crop(sen,st_bbox(trainsites))%>%
+  st_as_stars()%>%
+  merge()
 
 prediction_crop <- st_crop(prediction,st_bbox(trainsites))
-p1 <- tm_shape(st_as_stars(prediction_crop)) +
+
+
+AOA_ms <- aoa(sen_crop, model)
+prediction_st_crop = st_as_stars(prediction_crop)
+
+
+png("../figures/rgb_ms.png", width=15, height=11,units = "cm",res=300)
+plot(st_rgb(sen_crop[,,,c(1,2,3)], stretch = TRUE, probs = c(.01, .99)),main=NULL,reset = FALSE)
+plot((st_geometry(trainsites)),add=TRUE,border="red",lwd=3)
+invisible(dev.off())
+
+
+map1_ms <-tm_shape(prediction_st_crop, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
   tm_scale_bar(bg.color="white")+
-  tm_layout(legend.position = c("left","bottom"),
+  tm_layout(legend.position = c("left","top"),
             legend.bg.color = "white",
-            legend.bg.alpha = 0.6)
+            legend.bg.alpha = 0.6,
+            legend.text.size = 1.5,
+            legend.title.size = 1.5)
 
 
-tmap_arrange(p_rgb, p1, p1,nrow=1,asp=1)
+prediction_st_crop[AOA_ms[2] == 0] = NA
+
+map1_AOA_ms <-tm_shape(prediction_st_crop, raster.downsample = FALSE) +
+  tm_raster(palette = cols,title = "LUC")+
+  tm_scale_bar(bg.color="white")+
+  tm_layout(legend.position = c("left","top"),
+            legend.bg.color = "white",
+            legend.bg.alpha = 0.6,
+            bg.color="black",
+            legend.text.size = 1.5,
+            legend.title.size = 1.5)+
+  tm_add_legend(type = "fill",
+                col="black",
+                labels = "Outside AOA")
 
 
-#tmap_save(map, "LUC_muenster_map.png")
+tmap_save(map1_ms, "../figures/LUC_map_ms.png")
+tmap_save(map1_AOA_ms, "../figures/LUC_map_ms_AOA.png")
+
+```
 
 
+```{r, echo=FALSE,out.width="100%",fig.cap=""}
+include_graphics("../figures/rgb_ms.png")
+include_graphics("../figures/LUC_map_ms.png")
+include_graphics("../figures/LUC_map_ms_AOA.png")
 ```
 
 
@@ -180,7 +248,6 @@ tmap_arrange(p_rgb, p1, p1,nrow=1,asp=1)
 Run this code only if you want to write the results. It takes a while!
 ```{r}
 
-#write_stars(AOA,"../data/DI.tif",layer=1)
 #write_stars(AOA,"../data/AOA.tif",layer=2)
 
 #write_stars(prediction,"../data/prediction.tif",
