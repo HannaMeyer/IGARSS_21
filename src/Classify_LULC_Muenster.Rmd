@@ -65,7 +65,7 @@ s2 <- list.files(paste0("../data/",sen_id),
                  full.names = TRUE,
                  pattern=".jp2")
 # match band name to file name:
-m = match(paste0(bands,".jp2"), substr(s2,nchar(s2)-6,nchar(s2)))
+m <- match(paste0(bands,".jp2"), substr(s2,nchar(s2)-6,nchar(s2)))
 s2 <- s2[m]
 
 sen <- read_stars(s2, proxy = TRUE, NA_value = 0) %>%
@@ -130,9 +130,13 @@ AOA <-  merge(sen)%>%
 
 ## Visualize RGB, Prediction, and Prediction within the AOA
 ```{r, warning=FALSE, message=FALSE}
+ext_muenster <- st_buffer( st_as_sfc(st_bbox(trainsites)),1500)
 
 png("../figures/rgb_all.png", width=15, height=15,units = "cm",res=300)
-plot(st_rgb(merge(st_as_stars(sen,downsample=c(10,10)))[,,,c(1,2,3)], stretch = TRUE, probs = c(.01, .99)),main=NULL)
+plot(st_rgb(merge(st_as_stars(sen,downsample=c(10,10)))[,,,c(1,2,3)], stretch = TRUE, probs = c(.01, .99)),main=NULL,reset=FALSE)
+
+plot(ext_muenster,add=TRUE,lwd=3,border="red")
+
 invisible(dev.off())
 
 cols <- rev(c("red","lightgreen","forestgreen","blue","green","beige"))
@@ -140,8 +144,7 @@ cols <- rev(c("red","lightgreen","forestgreen","blue","green","beige"))
 
 
 
-prediction_st = st_as_stars(prediction, downsample = c(10,10))
-
+prediction_st <- st_as_stars(prediction, downsample = c(10,10))
 
 map1 <- tm_shape(prediction_st, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
@@ -153,7 +156,7 @@ map1 <- tm_shape(prediction_st, raster.downsample = FALSE) +
             legend.title.size = 1.5)
 
 
-prediction_st[AOA[2] == 0] = NA
+prediction_st[AOA[2] == 0] <- NA
 
 map1_AOA <- tm_shape(prediction_st, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
@@ -187,15 +190,17 @@ include_graphics("../figures/LUC_map_AOA.png")
 
 
 ```{r, warning=FALSE, message=FALSE}
-sen_crop <- st_crop(sen,st_bbox(trainsites))%>%
+
+
+sen_crop <- st_crop(sen,st_bbox(ext_muenster))%>%
   st_as_stars()%>%
   merge()
 
-prediction_crop <- st_crop(prediction,st_bbox(trainsites))
+prediction_crop <- st_crop(prediction,st_bbox(ext_muenster))
 
 
 AOA_ms <- aoa(sen_crop, model)
-prediction_st_crop = st_as_stars(prediction_crop)
+prediction_st_crop <- st_as_stars(prediction_crop)
 
 
 png("../figures/rgb_ms.png", width=15, height=11,units = "cm",res=300)
@@ -214,7 +219,7 @@ map1_ms <-tm_shape(prediction_st_crop, raster.downsample = FALSE) +
             legend.title.size = 1.5)
 
 
-prediction_st_crop[AOA_ms[2] == 0] = NA
+prediction_st_crop[AOA_ms[2] == 0] <- NA
 
 map1_AOA_ms <-tm_shape(prediction_st_crop, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
