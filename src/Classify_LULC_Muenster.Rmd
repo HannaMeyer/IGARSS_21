@@ -156,7 +156,7 @@ map1 <- tm_shape(prediction_st, raster.downsample = FALSE) +
             legend.title.size = 1.5)
 
 
-prediction_st[AOA[2] == 0] <- NA
+prediction_st[AOA$AOA == 0] <- NA
 
 map1_AOA <- tm_shape(prediction_st, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
@@ -219,7 +219,7 @@ map1_ms <-tm_shape(prediction_st_crop, raster.downsample = FALSE) +
             legend.title.size = 1.5)
 
 
-prediction_st_crop[AOA_ms[2] == 0] <- NA
+prediction_st_crop[AOA_ms$AOA == 0] <- NA
 
 map1_AOA_ms <-tm_shape(prediction_st_crop, raster.downsample = FALSE) +
   tm_raster(palette = cols,title = "LUC")+
